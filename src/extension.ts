@@ -29,34 +29,92 @@ async function getToken(context: vscode.ExtensionContext): Promise<string | unde
   return context.secrets.get(SECRET_KEY);
 }
 
-function formatReport(r: Awaited<ReturnType<typeof fetchAndBuildReport>>['report']): string {
+type Report = Awaited<ReturnType<typeof fetchAndBuildReport>>['report'];
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function reportToHtml(r: Report): string {
   if (!r) return '';
-  const lines: string[] = [
-    `Billing cycle start: ${r.cycleStartIso}`,
-    `Days left in period: ${r.daysLeft}`,
-    'Period: cycle start → now',
-    '',
-    '=== Team total (this period) ===',
-    `  $${r.totalDollars}`,
-    '',
-    'On-Demand (team):',
-    `  $${r.onDemandDollars} / $${r.teamLimit}`,
-    '',
-    '=== By user ===',
-    '                                    spend  remaining',
-  ];
-  for (const u of r.byUser) {
-    lines.push(`  ${u.email.padEnd(40)}  $${u.dollars.padStart(8)}  $${u.remaining.padStart(8)}`);
-  }
-  lines.push('', '=== By model ===');
-  for (const m of r.byModel) {
-    lines.push(`  ${m.model.padEnd(45)}  $${m.dollars}`);
-  }
-  lines.push('', '=== By user + model ===');
-  for (const um of r.byUserModel) {
-    lines.push(`  ${um.email.padEnd(36)}  ${um.model.padEnd(40)}  $${um.dollars}`);
-  }
-  return lines.join('\n');
+  const rowsByUser = r.byUser
+    .map(
+      (u) =>
+        `<tr><td class="email">${escapeHtml(u.email)}</td><td class="num">$${escapeHtml(u.dollars)}</td><td class="num">$${escapeHtml(u.remaining)}</td></tr>`
+    )
+    .join('');
+  const rowsByModel = r.byModel
+    .map(
+      (m) =>
+        `<tr><td class="model">${escapeHtml(m.model)}</td><td class="num">$${escapeHtml(m.dollars)}</td></tr>`
+    )
+    .join('');
+  const rowsByUserModel = r.byUserModel
+    .map(
+      (um) =>
+        `<tr><td class="email">${escapeHtml(um.email)}</td><td class="model">${escapeHtml(um.model)}</td><td class="num">$${escapeHtml(um.dollars)}</td></tr>`
+    )
+    .join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cursor Team Spend</title>
+  <style>
+    :root { --bg: #f6f8fa; --card: #fff; --border: #e1e4e8; --text: #24292f; --muted: #57606a; --accent: #0969da; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.5; color: var(--text); background: var(--bg); }
+    h1 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
+    .meta { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+    section { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    section h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+    .summary { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 24px; }
+    .summary section { flex: 1; min-width: 180px; margin-bottom: 0; }
+    .big { font-size: 24px; font-weight: 600; color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    .num { font-variant-numeric: tabular-nums; text-align: right; }
+    .email, .model { word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>Cursor Team Spend</h1>
+  <p class="meta">Billing cycle start: ${escapeHtml(r.cycleStartIso)} · ${r.daysLeft} days left · Period: cycle start → now</p>
+  <div class="summary">
+    <section>
+      <h2>Team total (this period)</h2>
+      <div class="big">$${escapeHtml(r.totalDollars)}</div>
+    </section>
+    <section>
+      <h2>On-demand (team)</h2>
+      <div class="big">$${escapeHtml(r.onDemandDollars)} <span style="font-size:14px;color:var(--muted)">/ $${r.teamLimit}</span></div>
+    </section>
+  </div>
+  <section>
+    <h2>By user</h2>
+    <table><thead><tr><th>User</th><th class="num">Spend</th><th class="num">Remaining</th></tr></thead><tbody>${rowsByUser}</tbody></table>
+  </section>
+  <section>
+    <h2>By model</h2>
+    <table><thead><tr><th>Model</th><th class="num">Spend</th></tr></thead><tbody>${rowsByModel}</tbody></table>
+  </section>
+  <section>
+    <h2>By user + model</h2>
+    <table><thead><tr><th>User</th><th>Model</th><th class="num">Spend</th></tr></thead><tbody>${rowsByUserModel}</tbody></table>
+  </section>
+</body>
+</html>`;
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -104,7 +162,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     const me = report.byUser.find((u) => u.email.toLowerCase() === myEmail!.toLowerCase());
     const mySpend = me?.dollars ?? '0.00';
-    statusBar.text = `$(pulse) Team Spend: $${mySpend} / $${userTarget}`;
+    statusBar.text = `$(pulse) My Cursor Spend: $${mySpend} / $${userTarget}`;
     statusBar.tooltip = `Your spend this period. Click for full team report.`;
     statusBar.command = 'cursorTeamSpend.showReport';
     statusBar.show();
@@ -146,11 +204,13 @@ export function activate(context: vscode.ExtensionContext) {
             return;
           }
           if (report) {
-            const doc = await vscode.workspace.openTextDocument({
-              content: formatReport(report),
-              language: 'plaintext',
-            });
-            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One });
+            const panel = vscode.window.createWebviewPanel(
+              'cursorTeamSpend.report',
+              'Cursor Team Spend',
+              vscode.ViewColumn.One,
+              { enableScripts: false }
+            );
+            panel.webview.html = reportToHtml(report);
           }
         }
       );

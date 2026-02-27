@@ -42,7 +42,7 @@ Shows Cursor team on-demand spend in the status bar and provides a command to op
 
 ## Usage
 
-- **Status bar**: Shows **your** spend vs user target, e.g. `Team Spend: $42.00 / $200`. Click to open the full team report.
+- **Status bar**: Shows **your** spend vs user target, e.g. `My Cursor Spend: $42.00 / $200`. Click to open the full team report.
 - **Cursor Team Spend: Show team spend report** – Opens the full report (team total, on-demand, by user with remaining vs target, by model, by user+model).
 - **Cursor Team Spend: Set API token** – Store or clear the API key (saved in secret storage).
 - **Cursor Team Spend: Set my user** – Pick which team email is you (so the status bar shows your spend).
