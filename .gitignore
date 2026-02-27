@@ -1,0 +1,13 @@
+node_modules/
+out/
+*.vsix
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+npm-debug.log*
+.npm
+.vscode-test/
+coverage/
+*.tsbuildinfo

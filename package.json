@@ -1,0 +1,49 @@
+{
+  "name": "cursor-team-spend",
+  "displayName": "Cursor Team Spend",
+  "description": "Show Cursor team usage and on-demand spend in status bar; run spend report (requires Admin API token, not for marketplace).",
+  "version": "0.1.0",
+  "publisher": "internal",
+  "repository": { "type": "git", "url": "https://github.com/thnk2wn/cursor-team-spend" },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "cursorTeamSpend.showReport", "title": "Cursor Team Spend: Show team spend report" },
+      { "command": "cursorTeamSpend.setToken", "title": "Cursor Team Spend: Set API token" },
+      { "command": "cursorTeamSpend.setMyUser", "title": "Cursor Team Spend: Set my user" },
+      { "command": "cursorTeamSpend.refreshStatus", "title": "Cursor Team Spend: Refresh spend in status bar" },
+      { "command": "cursorTeamSpend.clearSavedData", "title": "Cursor Team Spend: Clear saved data (token, user)" }
+    ],
+    "configuration": {
+      "title": "Cursor Team Spend",
+      "properties": {
+        "cursorTeamSpend.teamSpendLimit": {
+          "type": "number",
+          "default": 1200,
+          "description": "Team on-demand spend limit (dollars) for status/report."
+        },
+        "cursorTeamSpend.userSpendTarget": {
+          "type": "number",
+          "default": 200,
+          "description": "Per-user spend target (dollars) for remaining column."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --no-dependencies",
+    "clear-settings": "bash scripts/clear-extension-data.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}
