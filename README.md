@@ -43,7 +43,7 @@ Shows Cursor team on-demand spend in the status bar and provides a command to op
 
 ## Development
 
-Use `npm run reinstall` for a clean install and build (removes `out` and `node_modules`, then installs deps, compiles, and packages the VSIX). The `.vsix` is created in the project root; install via **Extensions: Install from VSIX...** or:
+Use `npm run reinstall` for a clean build and install: removes `out` and `node_modules`, rebuilds, then installs the new `.vsix` into Cursor (so **Developer: Reload Window** picks it up). If `cursor` isn’t on your PATH it only builds the `.vsix`; install via **Extensions: Install from VSIX...** or:
 
 ```bash
 cursor --install-extension ./cursor-team-spend-*.vsix

@@ -40,7 +40,7 @@
     "package": "vsce package --no-dependencies",
     "build": "bash build.sh",
     "rebuild": "bash rebuild.sh",
-    "reinstall": "bash rebuild.sh",
+    "reinstall": "bash scripts/reinstall.sh",
     "clear-settings": "bash scripts/clear-extension-data.sh"
   },
   "devDependencies": {

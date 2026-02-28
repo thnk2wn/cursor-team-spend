@@ -1,21 +1,27 @@
 const BASE = 'https://api.cursor.com';
 
+export type LogFn = (message: string, level?: 'error' | 'info') => void;
+
 function authHeader(token: string): Record<string, string> {
   const encoded = Buffer.from(`${token}:`).toString('base64');
   return { Authorization: `Basic ${encoded}` };
 }
 
-export async function fetchSpend(token: string): Promise<{
-  subscriptionCycleStart?: number;
-  error?: string;
-}> {
+export async function fetchSpend(
+  token: string,
+  log?: LogFn
+): Promise<{ subscriptionCycleStart?: number; error?: string }> {
   const res = await fetch(`${BASE}/teams/spend`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeader(token) },
     body: JSON.stringify({ page: 1, pageSize: 1 }),
   });
   const data = (await res.json()) as Record<string, unknown>;
-  if (data.code) return { error: `${data.code}: ${data.message ?? 'Error'}` };
+  if (data.code) {
+    const err = `${data.code}: ${data.message ?? 'Error'}`;
+    log?.(`fetchSpend: ${err}`, 'error');
+    return { error: err };
+  }
   const cycle = data.subscriptionCycleStart as number | undefined;
   return { subscriptionCycleStart: cycle };
 }
@@ -25,8 +31,24 @@ export interface UsageEvent {
   user_email?: string;
   kind?: string;
   model?: string;
-  tokenUsage?: { totalCents?: number };
+  tokenUsage?: {
+    totalCents?: number;
+    totalTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    [k: string]: number | undefined;
+  };
   cursorTokenFee?: number;
+  createdAtMs?: number;
+  createdAt?: number;
+  created_at?: number;
+  timestamp?: number;
+  date?: number;
+  time?: number;
+  totalTokens?: number;
+  total_tokens?: number;
+  tokens?: number;
+  token_count?: number;
 }
 
 function cost(ev: UsageEvent): number {
@@ -38,7 +60,8 @@ function cost(ev: UsageEvent): number {
 export async function fetchUsageEvents(
   token: string,
   startMs: number,
-  endMs: number
+  endMs: number,
+  log?: LogFn
 ): Promise<{ events: UsageEvent[]; error?: string }> {
   const all: UsageEvent[] = [];
   let page = 1;
@@ -51,7 +74,11 @@ export async function fetchUsageEvents(
       body: JSON.stringify({ startDate: startMs, endDate: endMs, page, pageSize }),
     });
     const data = (await res.json()) as Record<string, unknown>;
-    if (data.code) return { events: [], error: `${data.code}: ${data.message ?? 'Error'}` };
+    if (data.code) {
+      const err = `${data.code}: ${data.message ?? 'Error'}`;
+      log?.(`fetchUsageEvents: ${err}`, 'error');
+      return { events: [], error: err };
+    }
     const events = (data.usageEvents as UsageEvent[]) ?? [];
     all.push(...events);
     const pag = data.pagination as { numPages?: number } | undefined;
@@ -59,7 +86,26 @@ export async function fetchUsageEvents(
     if (page >= numPages) break;
     page += 1;
   }
+  log?.(`Fetched ${all.length} usage events`, 'info');
+  if (all.length > 0 && log) {
+    const first = all[0] as Record<string, unknown>;
+    const keys = Object.keys(first).sort().join(', ');
+    log(`First event keys: ${keys}`, 'info');
+    const tu = first.tokenUsage as Record<string, unknown> | undefined;
+    if (tu && typeof tu === 'object') {
+      log(`First event tokenUsage keys: ${Object.keys(tu).sort().join(', ')}`, 'info');
+    }
+  }
   return { events: all };
+}
+
+export interface ReportTransactionRow {
+  date: string;
+  user: string;
+  type: string;
+  model: string;
+  tokens: string;
+  cost: string;
 }
 
 export interface ReportData {
@@ -72,17 +118,64 @@ export interface ReportData {
   byUser: { email: string; dollars: string; remaining: string }[];
   byModel: { model: string; dollars: string }[];
   byUserModel: { email: string; model: string; dollars: string }[];
+  myEmail?: string;
+  myDollars?: string;
+  myRecentTransactions?: ReportTransactionRow[];
 }
 
 function toDollars(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
+function eventTimeMs(ev: UsageEvent): number {
+  if (ev.createdAtMs != null) return ev.createdAtMs;
+  if (ev.createdAt != null) return ev.createdAt * 1000;
+  if (ev.created_at != null) return ev.created_at * 1000;
+  if (ev.timestamp != null) return ev.timestamp >= 1e12 ? ev.timestamp : ev.timestamp * 1000;
+  if (ev.date != null) return ev.date >= 1e12 ? ev.date : ev.date * 1000;
+  if (ev.time != null) return ev.time >= 1e12 ? ev.time : ev.time * 1000;
+  return 0;
+}
+
+function eventTokens(ev: UsageEvent): number {
+  const tu = ev.tokenUsage;
+  if (ev.totalTokens != null && ev.totalTokens > 0) return ev.totalTokens;
+  if (ev.total_tokens != null && ev.total_tokens > 0) return ev.total_tokens;
+  if (tu?.totalTokens != null && tu.totalTokens > 0) return tu.totalTokens;
+  if (tu?.inputTokens != null || tu?.outputTokens != null)
+    return (tu.inputTokens ?? 0) + (tu.outputTokens ?? 0);
+  if (ev.tokens != null && ev.tokens > 0) return ev.tokens;
+  if (ev.token_count != null && ev.token_count > 0) return ev.token_count;
+  return 0;
+}
+
+function formatTimeAgo(ms: number): string {
+  if (!ms || ms <= 0) return '—';
+  const diffMs = Date.now() - ms;
+  if (diffMs < 0) return '—';
+  const sec = Math.floor(diffMs / 1000);
+  const min = Math.floor(sec / 60);
+  const hour = Math.floor(min / 60);
+  const day = Math.floor(hour / 24);
+  if (sec < 60) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  if (hour < 24) return `${hour}h ago`;
+  if (day < 7) return `${day}d ago`;
+  return `${Math.floor(day / 7)}w ago`;
+}
+
+function formatTokens(n: number): string {
+  if (n == null || n === 0) return '—';
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
+
 export function buildReport(
   cycleStartMs: number,
   events: UsageEvent[],
   teamLimit: number,
-  userTarget: number
+  userTarget: number,
+  myEmail?: string
 ): ReportData {
   const costPer = (ev: UsageEvent) => cost(ev);
   const totalCents = events.reduce((s, e) => s + costPer(e), 0);
@@ -133,6 +226,26 @@ export function buildReport(
   let daysLeft = Math.floor((nextCycleSec - nowSec) / 86400);
   if (daysLeft < 0) daysLeft = 0;
 
+  let myDollars: string | undefined;
+  let myRecentTransactions: ReportTransactionRow[] | undefined;
+  if (myEmail) {
+    const norm = myEmail.toLowerCase();
+    const myEvents = events.filter(
+      (e) => (e.userEmail ?? e.user_email ?? '').toLowerCase() === norm
+    );
+    const myCents = myEvents.reduce((s, e) => s + costPer(e), 0);
+    myDollars = toDollars(myCents);
+    const sorted = [...myEvents].sort((a, b) => eventTimeMs(b) - eventTimeMs(a));
+    myRecentTransactions = sorted.slice(0, 5).map((ev) => ({
+      date: formatTimeAgo(eventTimeMs(ev)),
+      user: ev.userEmail ?? ev.user_email ?? '—',
+      type: ev.kind ?? '—',
+      model: ev.model ?? '—',
+      tokens: formatTokens(eventTokens(ev)),
+      cost: `$${toDollars(costPer(ev))}`,
+    }));
+  }
+
   return {
     cycleStartIso,
     daysLeft,
@@ -143,20 +256,25 @@ export function buildReport(
     byUser,
     byModel,
     byUserModel,
+    myEmail: myEmail ? myEmail : undefined,
+    myDollars,
+    myRecentTransactions,
   };
 }
 
 export async function fetchAndBuildReport(
   token: string,
   teamLimit: number,
-  userTarget: number
+  userTarget: number,
+  myEmail?: string,
+  log?: LogFn
 ): Promise<{ report?: ReportData; error?: string }> {
-  const spend = await fetchSpend(token);
+  const spend = await fetchSpend(token, log);
   if (spend.error) return { error: spend.error };
   const cycleStart = spend.subscriptionCycleStart ?? Date.now() - 30 * 86400 * 1000;
   const endMs = Date.now();
-  const { events, error } = await fetchUsageEvents(token, cycleStart, endMs);
+  const { events, error } = await fetchUsageEvents(token, cycleStart, endMs, log);
   if (error) return { error };
-  const report = buildReport(cycleStart, events, teamLimit, userTarget);
+  const report = buildReport(cycleStart, events, teamLimit, userTarget, myEmail);
   return { report };
 }

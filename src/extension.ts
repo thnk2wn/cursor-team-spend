@@ -1,9 +1,21 @@
 import * as vscode from 'vscode';
 import { execSync } from 'child_process';
-import { fetchAndBuildReport } from './api';
+import { fetchAndBuildReport, LogFn } from './api';
 
 const SECRET_KEY = 'cursorTeamSpend.apiToken';
 const MY_EMAIL_KEY = 'cursorTeamSpend.myEmail';
+
+const OUTPUT_CHANNEL_NAME = 'Cursor Team Spend';
+const REFRESH_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes (increase if you hit API rate limits)
+const SPEND_WARNING_RATIO = 0.9; // toast when at or above 90% of personal target
+
+function createLogger(channel: vscode.OutputChannel): LogFn {
+  return (message: string, level?: 'error' | 'info') => {
+    const ts = new Date().toISOString();
+    const prefix = level === 'error' ? '[ERROR] ' : level === 'info' ? '[INFO] ' : '';
+    channel.appendLine(`${ts} ${prefix}${message}`);
+  };
+}
 
 function getGitUserEmail(): string | undefined {
   try {
@@ -41,6 +53,32 @@ function escapeHtml(s: string): string {
 
 function reportToHtml(r: Report): string {
   if (!r) return '';
+  const mySection =
+    r.myEmail && r.myDollars != null
+      ? `
+  <section>
+    <h2>Your spend (this period)</h2>
+    <div class="big">$${escapeHtml(r.myDollars)} <span style="font-size:14px;color:var(--muted)">/ $${r.userTarget}</span></div>
+    ${
+      r.myRecentTransactions && r.myRecentTransactions.length > 0
+        ? `
+    <p class="meta" style="margin-top:12px;margin-bottom:8px;">Last 5 transactions</p>
+    <table><thead><tr><th>Date</th><th>User</th><th>Type</th><th>Model</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead><tbody>
+    ${r.myRecentTransactions
+      .map(
+        (t) =>
+          `<tr><td>${escapeHtml(t.date)}</td><td class="email">${escapeHtml(t.user)}</td><td>${escapeHtml(t.type)}</td><td class="model">${escapeHtml(t.model)}</td><td class="num">${escapeHtml(t.tokens)}</td><td class="num">${escapeHtml(t.cost)}</td></tr>`
+      )
+      .join('')}
+    </tbody></table>`
+        : ''
+    }
+  </section>`
+      : `
+  <section>
+    <h2>Your spend</h2>
+    <p class="meta">Set your user to see your spend and last 5 transactions here. Command Palette → <strong>Cursor Team Spend: Set my user</strong></p>
+  </section>`;
   const rowsByUser = r.byUser
     .map(
       (u) =>
@@ -100,7 +138,7 @@ function reportToHtml(r: Report): string {
       <h2>On-demand (team)</h2>
       <div class="big">$${escapeHtml(r.onDemandDollars)} <span style="font-size:14px;color:var(--muted)">/ $${r.teamLimit}</span></div>
     </section>
-  </div>
+  </div>${mySection}
   <section>
     <h2>By user</h2>
     <table><thead><tr><th>User</th><th class="num">Spend</th><th class="num">Remaining</th></tr></thead><tbody>${rowsByUser}</tbody></table>
@@ -118,8 +156,13 @@ function reportToHtml(r: Report): string {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  const outputChannel = vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME);
+  context.subscriptions.push(outputChannel);
+  const log = createLogger(outputChannel);
+
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   context.subscriptions.push(statusBar);
+  let spentToastShownThisSession = false;
 
   async function refreshStatus() {
     const token = await context.secrets.get(SECRET_KEY);
@@ -133,8 +176,9 @@ export function activate(context: vscode.ExtensionContext) {
     let myEmail = context.globalState.get<string>(MY_EMAIL_KEY);
     const { teamLimit, userTarget } = getConfig();
 
-    const { report, error } = await fetchAndBuildReport(token, teamLimit, userTarget);
+    const { report, error } = await fetchAndBuildReport(token, teamLimit, userTarget, undefined, log);
     if (error) {
+      log(error, 'error');
       statusBar.text = '$(warning) Team Spend: error';
       statusBar.tooltip = error;
       statusBar.command = 'cursorTeamSpend.showReport';
@@ -161,9 +205,29 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     const me = report.byUser.find((u) => u.email.toLowerCase() === myEmail!.toLowerCase());
-    const mySpend = me?.dollars ?? '0.00';
-    statusBar.text = `$(pulse) My Cursor Spend: $${mySpend} / $${userTarget}`;
-    statusBar.tooltip = `Your spend this period. Click for full team report.`;
+    const mySpendStr = me?.dollars ?? '0.00';
+    const mySpendNum = parseFloat(mySpendStr) || 0;
+    const ratio = userTarget > 0 ? mySpendNum / userTarget : 0;
+
+    let icon: string;
+    if (ratio >= 1) {
+      icon = '$(error)';
+      statusBar.tooltip = `Over personal spend target ($${mySpendStr} / $${userTarget}). Click for report.`;
+    } else if (ratio >= SPEND_WARNING_RATIO) {
+      icon = '$(warning)';
+      statusBar.tooltip = `Approaching spend target ($${mySpendStr} / $${userTarget}). Click for report.`;
+      if (!spentToastShownThisSession) {
+        spentToastShownThisSession = true;
+        vscode.window.showWarningMessage(
+          `Cursor Team Spend: You're at ${Math.round(ratio * 100)}% of your personal spend target ($${mySpendStr} / $${userTarget}).`
+        );
+      }
+    } else {
+      icon = '$(pulse)';
+      statusBar.tooltip = `Your spend this period. Click for full team report.`;
+    }
+
+    statusBar.text = `${icon} My Cursor Spend: $${mySpendStr} / $${userTarget}`;
     statusBar.command = 'cursorTeamSpend.showReport';
     statusBar.show();
   }
@@ -195,15 +259,23 @@ export function activate(context: vscode.ExtensionContext) {
       const token = await getToken(context);
       if (!token) return;
       const { teamLimit, userTarget } = getConfig();
+      const myEmail = context.globalState.get<string>(MY_EMAIL_KEY);
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Cursor team spend…' },
         async () => {
-          const { report, error } = await fetchAndBuildReport(token, teamLimit, userTarget);
+          const { report, error } = await fetchAndBuildReport(token, teamLimit, userTarget, myEmail, log);
           if (error) {
+            log(error, 'error');
             vscode.window.showErrorMessage(`Cursor Team Spend: ${error}`);
             return;
           }
           if (report) {
+            log(
+              report.myEmail
+                ? `Report opened (user: ${report.myEmail}, ${report.myRecentTransactions?.length ?? 0} recent transactions)`
+                : 'Report opened (no user set)',
+              'info'
+            );
             const panel = vscode.window.createWebviewPanel(
               'cursorTeamSpend.report',
               'Cursor Team Spend',
@@ -222,12 +294,14 @@ export function activate(context: vscode.ExtensionContext) {
       const token = await getToken(context);
       if (!token) return;
       const { teamLimit, userTarget } = getConfig();
-      const { report, error } = await fetchAndBuildReport(token, teamLimit, userTarget);
+      const { report, error } = await fetchAndBuildReport(token, teamLimit, userTarget, undefined, log);
       if (error) {
+        log(error, 'error');
         vscode.window.showErrorMessage(`Cursor Team Spend: ${error}`);
         return;
       }
       if (!report || report.byUser.length === 0) {
+        log('setMyUser: no team users in report', 'info');
         vscode.window.showInformationMessage('Cursor Team Spend: no team users in report.');
         return;
       }
@@ -262,7 +336,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   refreshStatus();
-  const interval = setInterval(refreshStatus, 60 * 60 * 1000);
+  const interval = setInterval(refreshStatus, REFRESH_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(interval) });
 }
 
