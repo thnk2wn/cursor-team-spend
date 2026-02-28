@@ -38,6 +38,9 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package --no-dependencies",
+    "build": "bash build.sh",
+    "rebuild": "bash rebuild.sh",
+    "reinstall": "bash rebuild.sh",
     "clear-settings": "bash scripts/clear-extension-data.sh"
   },
   "devDependencies": {
