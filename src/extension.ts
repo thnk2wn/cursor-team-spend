@@ -53,12 +53,24 @@ function escapeHtml(s: string): string {
 
 function reportToHtml(r: Report): string {
   if (!r) return '';
+  const dailyAvgBlock =
+    r.myDailyAvgDollars != null
+      ? `<div class="your-spend-stat"><div class="daily-avg">$${escapeHtml(r.myDailyAvgDollars)} <span class="info-icon" title="Average per day, only counting days when you had usage">ℹ</span></div><div class="meta" style="font-size:12px;">Daily avg</div></div>`
+      : '';
+  const estExceedBlock =
+    r.myEstimateExceedInDays != null
+      ? `<div class="your-spend-stat"><div class="est-exceed">~${r.myEstimateExceedInDays} days</div><div class="meta" style="font-size:12px;">Est. to exceed budget</div></div>`
+      : '';
+  const statsBlock = dailyAvgBlock || estExceedBlock ? `<div class="your-spend-stats">${dailyAvgBlock}${estExceedBlock}</div>` : '';
   const mySection =
     r.myEmail && r.myDollars != null
       ? `
   <section>
     <h2>Your spend (this period)</h2>
-    <div class="big">$${escapeHtml(r.myDollars)} <span style="font-size:14px;color:var(--muted)">/ $${r.userTarget}</span></div>
+    <div class="your-spend-row">
+      <div class="big">$${escapeHtml(r.myDollars)} <span style="font-size:14px;color:var(--muted)">/ $${r.userTarget}</span></div>
+      ${statsBlock}
+    </div>
     ${
       r.myRecentTransactions && r.myRecentTransactions.length > 0
         ? `
@@ -118,6 +130,12 @@ function reportToHtml(r: Report): string {
     .summary { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 24px; }
     .summary section { flex: 1; min-width: 180px; margin-bottom: 0; }
     .big { font-size: 24px; font-weight: 600; color: var(--accent); }
+    .your-spend-row { display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start; }
+    .your-spend-stats { display: flex; gap: 32px; flex-wrap: wrap; }
+    .your-spend-stat { display: flex; flex-direction: column; gap: 2px; }
+    .daily-avg { font-size: 18px; font-weight: 600; color: var(--accent); }
+    .est-exceed { font-size: 16px; font-weight: 600; color: var(--text); }
+    .info-icon { cursor: help; color: var(--muted); margin-left: 4px; font-size: 14px; }
     table { width: 100%; border-collapse: collapse; }
     th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
     th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; }

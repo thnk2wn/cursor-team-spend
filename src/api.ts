@@ -120,6 +120,8 @@ export interface ReportData {
   byUserModel: { email: string; model: string; dollars: string }[];
   myEmail?: string;
   myDollars?: string;
+  myDailyAvgDollars?: string;
+  myEstimateExceedInDays?: number;
   myRecentTransactions?: ReportTransactionRow[];
 }
 
@@ -227,6 +229,8 @@ export function buildReport(
   if (daysLeft < 0) daysLeft = 0;
 
   let myDollars: string | undefined;
+  let myDailyAvgDollars: string | undefined;
+  let myEstimateExceedInDays: number | undefined;
   let myRecentTransactions: ReportTransactionRow[] | undefined;
   if (myEmail) {
     const norm = myEmail.toLowerCase();
@@ -235,6 +239,26 @@ export function buildReport(
     );
     const myCents = myEvents.reduce((s, e) => s + costPer(e), 0);
     myDollars = toDollars(myCents);
+
+    const dayToCents = new Map<number, number>();
+    for (const e of myEvents) {
+      const t = eventTimeMs(e);
+      if (t > 0) {
+        const day = Math.floor(t / 86400000);
+        dayToCents.set(day, (dayToCents.get(day) ?? 0) + costPer(e));
+      }
+    }
+    const daysWithUsage = dayToCents.size;
+    if (daysWithUsage > 0) {
+      myDailyAvgDollars = toDollars(Math.round(myCents / daysWithUsage));
+      const remainingCents = userTarget * 100 - myCents;
+      const dailyAvgCents = myCents / daysWithUsage;
+      if (userTarget > 0 && remainingCents > 0 && dailyAvgCents > 0) {
+        const daysToExceed = remainingCents / dailyAvgCents;
+        myEstimateExceedInDays = Math.ceil(daysToExceed);
+      }
+    }
+
     const sorted = [...myEvents].sort((a, b) => eventTimeMs(b) - eventTimeMs(a));
     myRecentTransactions = sorted.slice(0, 5).map((ev) => ({
       date: formatTimeAgo(eventTimeMs(ev)),
@@ -258,6 +282,8 @@ export function buildReport(
     byUserModel,
     myEmail: myEmail ? myEmail : undefined,
     myDollars,
+    myDailyAvgDollars,
+    myEstimateExceedInDays,
     myRecentTransactions,
   };
 }
