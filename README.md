@@ -52,8 +52,11 @@ cursor --install-extension ./cursor-team-spend-*.vsix
 **Releases** are built from tags via [GitHub Actions](.github/workflows/release-vsix.yml); the VSIX is attached to the [Releases](https://github.com/thnk2wn/cursor-team-spend/releases) page. To cut a new version:
 
 ```bash
-git tag v0.1.3
-git push origin v0.1.3
+git add .
+git commit -m "your message"
+git push
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
-The workflow uses the tag as the version (e.g. `v0.1.3` → version `0.1.3` in the built VSIX).
+The workflow uses the tag as the version (e.g. `v0.1.5` → version `0.1.5` in the built VSIX).
