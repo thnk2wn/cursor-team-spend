@@ -2,6 +2,8 @@
 
 Shows Cursor team on-demand spend in the status bar and provides a command to open the full spend report. Uses the Cursor Admin API with a token you set locally (not published to marketplace).
 
+![Screenshot](.assets/screenshot.jpg)
+
 ## Requirements
 
 - Cursor (or VS Code)
