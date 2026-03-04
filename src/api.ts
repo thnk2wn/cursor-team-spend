@@ -109,20 +109,22 @@ export interface ReportTransactionRow {
 }
 
 export interface ReportData {
+  byModel: { model: string; dollars: string }[];
+  byUser: { email: string; dollars: string; remaining: string }[];
+  byUserModel: { email: string; model: string; dollars: string }[];
   cycleStartIso: string;
   daysLeft: number;
-  totalDollars: string;
+  myDailyAvgDollars?: string;
+  myDollars?: string;
+  myEmail?: string;
+  myEstimateExceedInDays?: number;
+  myLastDaySpendDate?: string;
+  myLastDaySpendDollars?: string;
+  myRecentTransactions?: ReportTransactionRow[];
   onDemandDollars: string;
   teamLimit: number;
+  totalDollars: string;
   userTarget: number;
-  byUser: { email: string; dollars: string; remaining: string }[];
-  byModel: { model: string; dollars: string }[];
-  byUserModel: { email: string; model: string; dollars: string }[];
-  myEmail?: string;
-  myDollars?: string;
-  myDailyAvgDollars?: string;
-  myEstimateExceedInDays?: number;
-  myRecentTransactions?: ReportTransactionRow[];
 }
 
 function toDollars(cents: number): string {
@@ -231,6 +233,8 @@ export function buildReport(
   let myDollars: string | undefined;
   let myDailyAvgDollars: string | undefined;
   let myEstimateExceedInDays: number | undefined;
+  let myLastDaySpendDate: string | undefined;
+  let myLastDaySpendDollars: string | undefined;
   let myRecentTransactions: ReportTransactionRow[] | undefined;
   if (myEmail) {
     const norm = myEmail.toLowerCase();
@@ -247,6 +251,22 @@ export function buildReport(
         const day = Math.floor(t / 86400000);
         dayToCents.set(day, (dayToCents.get(day) ?? 0) + costPer(e));
       }
+    }
+    const yesterdayDay = Math.floor(Date.now() / 86400000) - 1;
+    const lastDayWithSpend =
+      dayToCents.has(yesterdayDay)
+        ? yesterdayDay
+        : (dayToCents.size > 0 ? Math.max(...dayToCents.keys()) : undefined);
+    if (lastDayWithSpend != null) {
+      myLastDaySpendDollars = toDollars(dayToCents.get(lastDayWithSpend)!);
+      myLastDaySpendDate =
+        lastDayWithSpend === yesterdayDay
+          ? 'Yesterday'
+          : new Date(lastDayWithSpend * 86400000).toLocaleDateString(undefined, {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+            });
     }
     const daysWithUsage = dayToCents.size;
     if (daysWithUsage > 0) {
@@ -271,20 +291,22 @@ export function buildReport(
   }
 
   return {
+    byModel,
+    byUser,
+    byUserModel,
     cycleStartIso,
     daysLeft,
-    totalDollars: toDollars(totalCents),
+    myDailyAvgDollars,
+    myDollars,
+    myEmail: myEmail ? myEmail : undefined,
+    myEstimateExceedInDays,
+    myLastDaySpendDate,
+    myLastDaySpendDollars,
+    myRecentTransactions,
     onDemandDollars: toDollars(onDemandCents),
     teamLimit,
+    totalDollars: toDollars(totalCents),
     userTarget,
-    byUser,
-    byModel,
-    byUserModel,
-    myEmail: myEmail ? myEmail : undefined,
-    myDollars,
-    myDailyAvgDollars,
-    myEstimateExceedInDays,
-    myRecentTransactions,
   };
 }
 
